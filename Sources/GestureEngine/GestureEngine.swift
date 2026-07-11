@@ -20,6 +20,11 @@ private let tapMaxDuration: Double = 0.5
 /// flicker would fire again.
 private let fireCooldown: Double = 0.3
 
+/// How far (normalized) the anchor finger may drift and still count as "held".
+/// A held finger barely moves; a swiping/scrolling finger travels well past
+/// this, which disqualifies the gesture.
+private let anchorMoveThreshold: Float = 0.15
+
 // Virtual key code for Tab.
 private let kVK_Tab: CGKeyCode = 0x30
 
@@ -35,6 +40,9 @@ private struct GestureState {
     // The first finger down. Held while a second finger taps beside it.
     var anchorID: Int32?
     var anchorX: Float = 0
+    // Where the anchor first landed, to measure drift ("held" vs swiping).
+    var anchorStartX: Float = 0
+    var anchorStartY: Float = 0
 
     // A second finger being evaluated as a potential tap.
     var tapID: Int32?
@@ -43,6 +51,11 @@ private struct GestureState {
 
     /// Timestamp of the last switch fired, for cooldown/debounce.
     var lastFireTime: Double = 0
+
+    /// Gesture disqualified (e.g. 3+ fingers, or the anchor moved). Stays set
+    /// until every finger lifts, so a multi-finger gesture can never fire even
+    /// as fingers lift off one at a time.
+    var blocked: Bool = false
 
     /// Currently-tracked finger IDs, so we can diff against the next frame to
     /// detect fingers that just appeared or just lifted.
@@ -85,12 +98,26 @@ private let contactCallback: MTContactCallbackFunction = {
     guard let touchesPtr = touchesPtr else { return 0 }
     let touches = UnsafeBufferPointer(start: touchesPtr, count: Int(numTouches))
 
-    // Map current frame's fingers to their x positions.
-    var currentX: [Int32: Float] = [:]
+    // Map current frame's fingers to their (x, y) positions.
+    var currentPos: [Int32: (x: Float, y: Float)] = [:]
     for t in touches {
-        currentX[t.fingerID] = t.normalized.position.x
+        currentPos[t.fingerID] = (t.normalized.position.x, t.normalized.position.y)
     }
-    let currentIDs = Set(currentX.keys)
+    let currentIDs = Set(currentPos.keys)
+
+    // The gesture is strictly two fingers. Any third finger disqualifies it
+    // until the whole hand lifts, so multi-finger swipes never fire.
+    if numTouches >= 3 {
+        state.blocked = true
+        state.reset()
+    }
+    if currentIDs.isEmpty {
+        state.blocked = false
+    }
+    if state.blocked {
+        state.prevIDs = currentIDs
+        return 0
+    }
 
     let newIDs = currentIDs.subtracting(state.prevIDs)
     let goneIDs = state.prevIDs.subtracting(currentIDs)
@@ -117,24 +144,33 @@ private let contactCallback: MTContactCallbackFunction = {
 
     // --- Handle new touches ---------------------------------------------------
     for id in newIDs {
-        guard let x = currentX[id] else { continue }
+        guard let p = currentPos[id] else { continue }
         if state.anchorID == nil {
             state.anchorID = id
-            state.anchorX = x
+            state.anchorX = p.x
+            state.anchorStartX = p.x
+            state.anchorStartY = p.y
         } else if state.tapID == nil, id != state.anchorID {
             state.tapID = id
-            state.tapX = x
+            state.tapX = p.x
             state.tapDownTime = timestamp
         }
-        // A third finger is ignored.
     }
 
-    // --- Track latest positions ----------------------------------------------
-    if let anchor = state.anchorID, let x = currentX[anchor] {
-        state.anchorX = x
+    // --- Track positions & enforce that the anchor stays "held" --------------
+    if let anchor = state.anchorID, let p = currentPos[anchor] {
+        let dx = p.x - state.anchorStartX
+        let dy = p.y - state.anchorStartY
+        if dx * dx + dy * dy > anchorMoveThreshold * anchorMoveThreshold {
+            // The anchor is travelling — this is a swipe/scroll, not a hold.
+            state.blocked = true
+            state.reset()
+        } else {
+            state.anchorX = p.x
+        }
     }
-    if let tap = state.tapID, let x = currentX[tap] {
-        state.tapX = x
+    if let tap = state.tapID, let p = currentPos[tap] {
+        state.tapX = p.x
     }
 
     state.prevIDs = currentIDs
