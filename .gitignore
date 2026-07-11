@@ -1,0 +1,10 @@
+# SwiftPM build output
+/.build/
+.swiftpm/
+
+# Generated app bundle + icon artifacts
+/GestureTabs.app/
+/AppIcon.iconset/
+
+# macOS
+.DS_Store
