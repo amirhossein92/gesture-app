@@ -2,6 +2,10 @@
 
 Switch browser/editor tabs with a trackpad gesture on macOS.
 
+A free, open-source, lightweight alternative to apps like MiddleClick and
+BetterTouchTool — it does one thing (tab switching from a trackpad tap) in a
+tiny menu-bar agent, with no subscription and no bundled feature bloat.
+
 - **Hold one finger, tap to its right** → next tab (`Ctrl+Tab`)
 - **Hold one finger, tap to its left** → previous tab (`Ctrl+Shift+Tab`)
 
