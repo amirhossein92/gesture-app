@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Needed for softprops/action-gh-release to create the release.
+permissions:
+  contents: write
+
+# Don't let two release runs race.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: swift --version
+
+      - name: Generate icon
+        run: bash ./make-icon.sh
+
+      - name: Build and bundle app
+        run: bash ./build-app.sh
+
+      - name: Zip app bundle
+        # ditto preserves macOS bundle metadata that plain zip drops.
+        run: ditto -c -k --keepParent GestureTabs.app GestureTabs.app.zip
+
+      - name: Compute release tag
+        id: version
+        run: echo "tag=v1.0.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: GestureTabs ${{ steps.version.outputs.tag }}
+          files: GestureTabs.app.zip
+          generate_release_notes: true
+          body: |
+            Download `GestureTabs.app.zip`, unzip, and move `GestureTabs.app`
+            to `/Applications`.
+
+            The app is ad-hoc signed (not notarized), so on first launch macOS
+            may block it. Either right-click the app → **Open**, or run:
+
+            ```sh
+            xattr -dr com.apple.quarantine /Applications/GestureTabs.app
+            ```
+
+            Then grant Accessibility permission:
+            **System Settings → Privacy & Security → Accessibility → GestureTabs**.
